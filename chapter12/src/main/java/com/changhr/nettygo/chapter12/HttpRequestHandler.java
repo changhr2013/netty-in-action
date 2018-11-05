@@ -1,6 +1,5 @@
 package com.changhr.nettygo.chapter12;
 
-import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.ssl.SslHandler;
@@ -42,37 +41,86 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<FullHttpRequ
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext channelHandlerContext, FullHttpRequest request) throws Exception {
+    public void channelRead0(ChannelHandlerContext ctx, FullHttpRequest request)
+            throws Exception {
         // 如果请求了WebSocket协议升级，则增加引用计数（调用retain()方法），并将它传递给下一个ChannelInboundHandler
         if (wsUri.equalsIgnoreCase(request.uri())){
-            channelHandlerContext.fireChannelRead(request.retain());
+            ctx.fireChannelRead(request.retain());
         } else {
-            if(HttpHeaders.is100ContinueExpected(request)){
-                send100Continue(channelHandlerContext);
+            if(HttpUtil.is100ContinueExpected(request)){
+                send100Continue(ctx);
             }
             // 读取index.html
             RandomAccessFile file = new RandomAccessFile(INDEX, "r");
-            HttpResponse response = new DefaultFullHttpResponse(request.getProtocolVersion(), HttpResponseStatus.OK);
-            response.headers().set(HttpHeaders.Names.CONTENT_TYPE, "text/plain;charset=UTF-8");
-            boolean keepAlive = HttpHeaders.isKeepAlive(request);
+            HttpResponse response = new DefaultHttpResponse(request.protocolVersion(), HttpResponseStatus.OK);
+            response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/html;charset=UTF-8");
+            boolean keepAlive = HttpUtil.isKeepAlive(request);
+            // 如果请求了keep-alive，则添加所需要的HTTP头信息
             if (keepAlive) {
-                response.headers().set(HttpHeaders.Names.CONTENT_LENGTH, file.length());
-                response.headers().set(HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE);
+                response.headers().set(HttpHeaderNames.CONTENT_LENGTH, file.length());
+                response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
             }
-            channelHandlerContext.write(response);
-            if (channelHandlerContext.pipeline().get(SslHandler.class) == null){
-                channelHandlerContext.write(new DefaultFileRegion(file.getChannel(), 0, file.length()));
+            // 将HttpResponse写到客户端
+            ctx.write(response);
+            // 将index.html写到客户端
+            if (ctx.pipeline().get(SslHandler.class) == null){
+                ctx.write(new DefaultFileRegion(file.getChannel(), 0, file.length()));
             } else {
-                channelHandlerContext.write(new ChunkedNioFile(file.getChannel()));
+                ctx.write(new ChunkedNioFile(file.getChannel()));
             }
-            ChannelFuture future = channelHandlerContext.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
+            // 写LastHttpContent并冲刷至客户端
+            ChannelFuture future = ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
+            // 如果没有请求keep-alive，则在写操作完成后关闭Channel
             if(!keepAlive){
                 future.addListener(ChannelFutureListener.CLOSE);
             }
         }
     }
 
-    private static void send100Continue(ChannelHandlerContext ctx){
+//    @Override
+//    public void channelRead0(ChannelHandlerContext ctx, FullHttpRequest request) throws Exception {
+//        if (wsUri.equalsIgnoreCase(request.uri())) {
+//            ctx.fireChannelRead(request.retain());
+//        } else {
+//            if (HttpUtil.is100ContinueExpected(request)) {
+//                send100Continue(ctx);
+//            }
+//            RandomAccessFile file = new RandomAccessFile(INDEX, "r");
+//            HttpResponse response = new DefaultHttpResponse(
+//                    request.protocolVersion(), HttpResponseStatus.OK);
+//            response.headers().set(
+//                    HttpHeaderNames.CONTENT_TYPE,
+//                    "text/html; charset=UTF-8");
+//            boolean keepAlive = HttpUtil.isKeepAlive(request);
+//            if (keepAlive) {
+//                response.headers().set(
+//                        HttpHeaderNames.CONTENT_LENGTH, file.length());
+//                response.headers().set( HttpHeaderNames.CONNECTION,
+//                        HttpHeaderValues.KEEP_ALIVE);
+//            }
+//            ctx.write(response);
+//            if (ctx.pipeline().get(SslHandler.class) == null) {
+//                ctx.write(new DefaultFileRegion(
+//                        file.getChannel(), 0, file.length()));
+//            } else {
+//                ctx.write(new ChunkedNioFile(file.getChannel()));
+//            }
+//            ChannelFuture future = ctx.writeAndFlush(
+//                    LastHttpContent.EMPTY_LAST_CONTENT);
+//            if (!keepAlive) {
+//                future.addListener(ChannelFutureListener.CLOSE);
+//            }
+//        }
+//    }
 
+    private static void send100Continue(ChannelHandlerContext ctx){
+        FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.CONTINUE);
+        ctx.writeAndFlush(response);
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+        cause.printStackTrace();
+        ctx.close();
     }
 }

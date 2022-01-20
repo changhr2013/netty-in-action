@@ -15,7 +15,7 @@
     <name>Chapter 11. Provided ChannelHandlers and codecs</name>
 
     <properties>
-        <protobug-java.version>3.5.1</protobug-java.version>
+        <protobug-java.version>3.16.1</protobug-java.version>
     </properties>
 
     <dependencies>
